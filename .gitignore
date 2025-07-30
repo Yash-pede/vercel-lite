@@ -1,0 +1,24 @@
+# Node modules and related
+node_modules/
+
+# dotenv environment files (optional security)
+.env
+.env.*
+
+# Terraform state and backups
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+terraform.tfvars
+*.backup
+
+# Ignore build/dist if you are not committing build output
+dist/
+build/
+
+# VSCode and IDE
+.vscode/
+.idea/
+*.swp

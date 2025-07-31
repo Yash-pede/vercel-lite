@@ -22,3 +22,7 @@ build/
 .vscode/
 .idea/
 *.swp
+
+package-lock.json
+yarn.lock
+pnpm-lock.yaml

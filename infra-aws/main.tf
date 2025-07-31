@@ -174,8 +174,8 @@ resource "aws_ecs_task_definition" "build_server_task" {
   family                   = "build-server-task"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = "512"
-  memory                   = "1024"
+  cpu                      = "1024"
+  memory                   = "4096"
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn # ECS infra pulls images
   task_role_arn            = aws_iam_role.build_server_task_role.arn  # Your app's AWS permissions
 
@@ -262,8 +262,8 @@ resource "aws_ecs_task_definition" "nginx_task" {
   family                   = "nginx-reverse-proxy-task"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = "256"
-  memory                   = "512"
+  cpu                      = "512"
+  memory                   = "1024"
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
 
   container_definitions = jsonencode([{

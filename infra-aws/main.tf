@@ -5,6 +5,19 @@ provider "aws" {
   region     = "ap-south-1"
 }
 
+# Get the default VPC in the current region
+data "aws_vpc" "default" {
+  default = true
+}
+
+# Get the subnets associated with the default VPC
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
 
 ####################################
 # 2. S3 Bucket - Public Read for Hosting Static Sites
@@ -71,6 +84,13 @@ resource "aws_ecr_repository" "build_server_repo" {
   }
 }
 
+resource "aws_ecr_repository" "nginx_reverse_proxy_repo" {
+  name = "nginx-reverse-proxy"
+  tags = {
+    Name        = "nginx-reverse-proxy"
+    Environment = "Production"
+  }
+}
 
 ####################################
 # 4. ECS Cluster
@@ -179,4 +199,105 @@ resource "aws_ecs_task_definition" "build_server_task" {
       }
     }
   ])
+}
+
+
+####################################
+# 7. ALB for NGINX Reverse Proxy
+####################################
+
+module "alb" {
+  source  = "terraform-aws-modules/alb/aws"
+  version = "9.17.0"
+
+  name    = "nginx-reverse-proxy"
+  vpc_id  = data.aws_vpc.default.id
+  subnets = data.aws_subnets.default.ids
+
+  # Security Group
+  security_group_ingress_rules = {
+    all_http = {
+      from_port   = 80
+      to_port     = 80
+      ip_protocol = "tcp"
+      description = "HTTP web traffic"
+      cidr_ipv4   = "0.0.0.0/0"
+    }
+  }
+  security_group_egress_rules = {
+    all = {
+      ip_protocol = "-1"
+      cidr_ipv4   = "0.0.0.0/0"
+      description = "Allow all outbound traffic"
+    }
+  }
+
+  listeners = {
+    ex-http-https-redirect = {
+      port     = 80
+      protocol = "HTTP"
+      forward  = { target_group_key = "ex-instance" }
+    }
+
+  }
+
+  target_groups = {
+    ex-instance = {
+      protocol                          = "HTTP"
+      port                              = 80
+      target_type                       = "ip"
+      deregistration_delay              = 5
+      load_balancing_cross_zone_enabled = true
+      create_attachment                 = false
+    }
+  }
+
+  tags = {
+    Environment = "Production"
+    Project     = "Nginx Reverse Proxy"
+  }
+}
+
+resource "aws_ecs_task_definition" "nginx_task" {
+  family                   = "nginx-reverse-proxy-task"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
+
+  container_definitions = jsonencode([{
+    name      = "nginx"
+    image     = "${aws_ecr_repository.nginx_reverse_proxy_repo.repository_url}:latest" # Or your custom nginx image if you have one
+    essential = true
+    portMappings = [{
+      containerPort = 80
+      protocol      = "tcp"
+      hostPort      = 80
+    }]
+  }])
+}
+
+resource "aws_ecs_service" "nginx_service" {
+  name            = "nginx-service"
+  cluster         = aws_ecs_cluster.build_server_cluster.id
+  task_definition = aws_ecs_task_definition.nginx_task.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = data.aws_subnets.default.ids
+    security_groups  = [module.alb.security_group_id] # Or create a dedicated SG that allows ALB traffic
+    assign_public_ip = true
+  }
+
+  load_balancer {
+    target_group_arn = module.alb.target_groups["ex-instance"].arn # Make sure to match your target group key
+    container_name   = "nginx"
+    container_port   = 80
+  }
+
+  depends_on = [
+    module.alb,
+  ]
 }

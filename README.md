@@ -136,15 +136,7 @@ This will create:
 
 * S3 bucket
 * IAM policies for upload access
-
----
-
-## 📡 API Endpoints
-
-| Endpoint            | Method | Description                 |
-| ------------------- | ------ | --------------------------- |
-| `/deploy`           | POST   | Accepts a GitHub repo URL   |
-| `/status/:deployId` | GET    | Get deployment status by ID |
+* ECR, ECS, ALB
 
 ---
 

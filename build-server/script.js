@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import mime from "mime-types";
+import Redis from "ioredis";
 
 const gitRepositoryUrl = process.env.GIT_REPOSITORY__URL;
 const githubBuildCommand = process.env.GITHUB_BUILD_COMMAND || "build";
@@ -14,48 +15,76 @@ const s3Client = new S3Client({
   region: "ap-south-1",
 });
 
+const publisher = new Redis('');
+function publishLog(message) {
+  publisher.publish(`logs:${PROJECT_ID}`, JSON.stringify({
+    message,
+    timestamp: new Date().toISOString(),
+  }));
+  console.log(message);
+}
+
 const init = async () => {
   if (!gitRepositoryUrl) {
-    console.error("GIT_REPOSITORY__URL environment variable is not set.");
+    publishLog("❌ ERROR: GIT_REPOSITORY__URL environment variable is not set.");
     process.exit(1);
   }
 
-  const p = exec(
-    `cd /app/repo && npm install && npm run ${githubBuildCommand}`
-  );
-  p.stdout.on("data", (data) => {
-    console.log(`stdout: ${data}`);
+  publishLog(`🚀 Starting build for project: ${PROJECT_ID}`);
+
+  publishLog("📦 Installing npm dependencies...");
+  await new Promise((resolve, reject) => {
+    exec(`cd /app/repo && npm install`, (err, stdout, stderr) => {
+      publishLog(stdout);
+      if (err) {
+        publishLog(`❌ Error installing dependencies: ${stderr || err.message}`);
+        reject(err);
+      } else {
+        publishLog("✅ Dependencies installed");
+        resolve();
+      }
+    });
   });
 
-  p.stderr.on("data", (data) => {
-    console.error(`stderr: ${data}`);
+  publishLog(`⚒️ Running build: npm run ${githubBuildCommand}`);
+  await new Promise((resolve, reject) => {
+    exec(`cd /app/repo && npm run ${githubBuildCommand}`, (err, stdout, stderr) => {
+      publishLog(stdout); // Publish all build output (optional, may be verbose)
+      if (err) {
+        publishLog(`❌ Build failed: ${stderr || err.message}`);
+        reject(err);
+      } else {
+        publishLog("✅ Build completed successfully");
+        resolve();
+      }
+    });
   });
 
-  p.on("close", (code) => {
-    if (code !== 0) {
-      console.error(`Process exited with code ${code}`);
-      return;
-    }
-    console.log("Build completed successfully.");
-    uploadToS3();
-    console.log("Done uploading to S3.");
-  });
+  // 4. Upload to S3
+  publishLog("☁️ Uploading build output to S3...");
+  const success = await uploadToS3();
+  if (success) {
+    publishLog("✅ All files uploaded to S3. Deployment complete!");
+  } else {
+    publishLog("❌ Error uploading files to S3.");
+  }
+
+  publisher.quit();
 };
 
 async function uploadToS3() {
   const outputDir = path.join("/app/repo", githubOutputDir);
   if (!fs.existsSync(outputDir)) {
-    console.error(`Output directory ${outputDir} does not exist.`);
-    return;
+    publishLog(`❌ Output directory ${outputDir} does not exist.`);
+    return false;
   }
-
   const files = fs.readdirSync(outputDir, { recursive: true });
+  let success = true;
   for (const file of files) {
     const filePath = path.join(outputDir, file);
     if (fs.lstatSync(filePath).isDirectory()) continue;
 
-    console.log(`Uploading file: ${filePath}`);
-
+    publishLog(`⤴️ Uploading file: ${file}`);
     try {
       const command = new PutObjectCommand({
         Bucket: bucketName,
@@ -64,11 +93,15 @@ async function uploadToS3() {
         ContentType: mime.lookup(filePath),
       });
       await s3Client.send(command);
-      console.log(`File uploaded successfully: ${file}`);
+      publishLog(`✅ File uploaded: ${file}`);
     } catch (err) {
-      console.error(`Error uploading file ${file}: ${err.message}`);
+      publishLog(`❌ Error uploading file ${file}: ${err.message}`);
+      success = false;
     }
   }
+  return success;
 }
 
-init();
+init().catch((err) => {
+  publishLog(`❌ Build process crashed: ${err.message}`);
+});

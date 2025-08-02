@@ -1,10 +1,28 @@
 const express = require("express");
 const { ECSClient, RunTaskCommand } = require("@aws-sdk/client-ecs");
-
+const { Server } = require("socket.io");
+const Redis = require("ioredis");
+const cors = require("cors");
 require("dotenv").config();
 
+
 const app = express();
-const PORT = 3000;
+const PORT = 4000;
+app.use(cors());
+
+const subscriber = new Redis(
+  ""
+);
+
+const io = new Server({ cors: "*" });
+
+io.on("connection", (socket) => {
+  socket.on("subscribe", (channel) => {
+    socket.join(channel);
+    socket.emit("message", `Joined ${channel}`);
+  });
+});
+io.listen(9000, () => console.log("Socket Server 9000"));
 
 app.use(express.json());
 const ecsClient = new ECSClient({ region: "ap-south-1" });
@@ -52,13 +70,23 @@ app.post("/api/project", async (req, res) => {
     console.log("Build started successfully:", response);
     return res.json({
       status: "queued",
-      data: { projectName, url: `http://${projectName}.yashpede.in` },
+      data: { projectName, url: `http://${projectName}.localhost:8000` },
     });
   } catch (error) {
     console.error("Error starting build:", error);
     res.status(500).json({ error: "Failed to start build" });
   }
 });
+
+async function initRedisSubscribe() {
+  console.log("Subscribed to logs....");
+  subscriber.psubscribe("logs:*");
+  subscriber.on("pmessage", (pattern, channel, message) => {
+    io.to(channel).emit("message", message);
+  });
+}
+
+initRedisSubscribe();
 
 app.listen(PORT, () => {
   console.log(`API service running on http://localhost:${PORT}`);

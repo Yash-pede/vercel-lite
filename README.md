@@ -4,6 +4,14 @@ A lightweight open-source Vercel clone built with Node.js, Next.js, Docker, AWS 
 
 ---
 
+## 🎥 Demo Video
+
+[![Vercel Lite Demo](https://img.youtube.com/vi/8EqbOZa5QOE/0.jpg)](https://www.youtube.com/watch?v=8EqbOZa5QOE)
+
+Click the image above or [watch it on YouTube](https://www.youtube.com/watch?v=8EqbOZa5QOE).
+
+---
+
 ## 📦 Folder Structure
 
 ```
